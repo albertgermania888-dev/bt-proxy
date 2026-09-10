@@ -101,6 +101,8 @@ async def async_main(args: argparse.Namespace) -> None:
         ble_manager=ble_manager,
         name=args.name,
         friendly_name=args.friendly_name,
+        manufacturer=args.manufacturer,
+        model=args.model,
         mac_address=bt_mac,
         bt_mac_address=bt_mac,
         port=args.port,
@@ -136,7 +138,7 @@ async def async_main(args: argparse.Namespace) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="ESPHome-compatible Bluetooth Proxy for Raspberry Pi"
+        description="ESPHome-compatible Bluetooth Proxy"
     )
     parser.add_argument(
         "--name",
@@ -145,6 +147,14 @@ def main() -> None:
     parser.add_argument(
         "--friendly-name",
         help="Friendly name (default: Bluetooth Proxy)",
+    )
+    parser.add_argument(
+        "--manufacturer",
+        help="Manufacturer name (default: OpenLumi)",
+    )
+    parser.add_argument(
+        "--model",
+        help="Model name (default: Xiaomi Gateway)",
     )
     parser.add_argument(
         "--port",
@@ -172,6 +182,8 @@ def main() -> None:
     default_config = {
         "name": "bt-proxy",
         "friendly_name": "Bluetooth Proxy",
+        "manufacturer": "OpenLumi",
+        "model": "Xiaomi Gateway",
         "port": 6053,
         "max_connections": 3,
         "log_level": "INFO"
@@ -196,6 +208,8 @@ def main() -> None:
     parser.set_defaults(
         name=loaded_config.get("name", default_config["name"]),
         friendly_name=loaded_config.get("friendly_name", default_config["friendly_name"]),
+        manufacturer=loaded_config.get("manufacturer", default_config["manufacturer"]),
+        model=loaded_config.get("model", default_config["model"]),
         port=loaded_config.get("port", default_config["port"]),
         max_connections=loaded_config.get("max_connections", default_config["max_connections"]),
         log_level=loaded_config.get("log_level", default_config["log_level"]),

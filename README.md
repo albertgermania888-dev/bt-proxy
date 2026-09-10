@@ -114,6 +114,8 @@ Example configuration:
 {
     "name": "bt-proxy",
     "friendly_name": "Bluetooth Proxy",
+    "manufacturer": "OpenLumi",
+    "model": "Xiaomi Gateway",
     "port": 6053,
     "max_connections": 3,
     "log_level": "INFO"

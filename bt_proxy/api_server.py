@@ -159,8 +159,8 @@ class APIConnection:
             name=self.server.name,
             mac_address=self.server.mac_address,
             esphome_version=EMULATED_ESPHOME_VERSION,
-            model="Raspberry Pi BT Proxy",
-            manufacturer="bt-proxy",
+            model=self.server.model,
+            manufacturer=self.server.manufacturer,
             friendly_name=self.server.friendly_name,
             bluetooth_proxy_feature_flags=feature_flags,
             bluetooth_mac_address=self.server.bt_mac_address,
@@ -566,6 +566,8 @@ class APIServer:
         ble_manager: BLEManager,
         name: str = "bt-proxy",
         friendly_name: str = "Bluetooth Proxy",
+        manufacturer: str = "OpenLumi",
+        model: str = "Xiaomi Gateway",
         mac_address: str = "",
         bt_mac_address: str = "",
         port: int = 6053,
@@ -573,6 +575,8 @@ class APIServer:
         self.ble_manager = ble_manager
         self.name = name
         self.friendly_name = friendly_name
+        self.manufacturer = manufacturer
+        self.model = model
         self.mac_address = mac_address
         self.bt_mac_address = bt_mac_address
         self.port = port
