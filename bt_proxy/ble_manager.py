@@ -494,26 +494,37 @@ class BLEManager:
             self._scanner_state_callback(proto.SCANNER_STATE_STARTING)
 
         try:
-            if use_passive:
+            while True:
                 try:
-                    await self._start_scanner_with_retry(passive=True)
-                except Exception as e:
-                    # Passive failed at runtime (e.g. BlueZ not started with
-                    # --experimental). Fall back to active scanning. If active
-                    # also fails the problem isn't passive-specific (e.g. the
-                    # adapter is powered off), so leave passive enabled for a
-                    # later retry rather than permanently disabling it.
-                    logger.warning(
-                        f"Passive scanning failed to start ({e}); "
-                        f"falling back to active scanning"
-                    )
-                    await self._start_scanner_with_retry(passive=False)
-                    # Active works but passive doesn't: don't attempt passive
-                    # again for the rest of the process.
-                    self._passive_unavailable = True
-                    self._effective_scan_active = True
-            else:
-                await self._start_scanner_with_retry(passive=False)
+                    if use_passive:
+                        try:
+                            await self._start_scanner_with_retry(passive=True)
+                        except Exception as e:
+                            # Passive failed at runtime (e.g. BlueZ not started with
+                            # --experimental). Fall back to active scanning. If active
+                            # also fails the problem isn't passive-specific (e.g. the
+                            # adapter is powered off), so leave passive enabled for a
+                            # later retry rather than permanently disabling it.
+                            logger.warning(
+                                f"Passive scanning failed to start ({e}); "
+                                f"falling back to active scanning"
+                            )
+                            await self._start_scanner_with_retry(passive=False)
+                            # Active works but passive doesn't: don't attempt passive
+                            # again for the rest of the process.
+                            self._passive_unavailable = True
+                            self._effective_scan_active = True
+                    else:
+                        await self._start_scanner_with_retry(passive=False)
+                    break # Success, exit loop
+                except Exception as inner_e:
+                    err_str = str(inner_e).lower()
+                    if "dbus" in err_str or "org.bluez" in err_str:
+                        logger.error(f"DBus error while starting scanner: {inner_e}. Retrying in 10s...")
+                        await self._teardown_scanner()
+                        await asyncio.sleep(10)
+                        continue
+                    raise inner_e # Re-raise if not DBus error
         except Exception as e:
             # Couldn't start even after a few gentle retries. Don't crash (a
             # supervisor restart-loop just hammers the adapter) and don't retry
@@ -636,7 +647,16 @@ class BLEManager:
                 if self._scanning:
                     break
                 logger.info("Re-arming BLE scanner after earlier failure")
-                await self.start_scanning()
+                try:
+                    await self.start_scanning()
+                except Exception as e:
+                    err_str = str(e).lower()
+                    if "dbus" in err_str or "org.bluez" in err_str:
+                        logger.warning("DBus connection lost. Sleeping 10s and retrying... (%s)", e)
+                        await asyncio.sleep(10.0)
+                        self._schedule_scan_rearm()
+                        return
+                    logger.error("Error re-arming scanner: %s", e)
         finally:
             self._scan_rearm_task = None
 

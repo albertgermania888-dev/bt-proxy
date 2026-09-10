@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import asyncio
 import logging
 import signal
@@ -138,24 +140,20 @@ def main() -> None:
     )
     parser.add_argument(
         "--name",
-        default="bt-proxy",
         help="Device name (default: bt-proxy)",
     )
     parser.add_argument(
         "--friendly-name",
-        default="Bluetooth Proxy",
         help="Friendly name (default: Bluetooth Proxy)",
     )
     parser.add_argument(
         "--port",
         type=int,
-        default=6053,
         help="API server port (default: 6053)",
     )
     parser.add_argument(
         "--max-connections",
         type=int,
-        default=3,
         help="Max concurrent BLE connections (default: 3)",
     )
     parser.add_argument(
@@ -165,9 +163,42 @@ def main() -> None:
     )
     parser.add_argument(
         "--log-level",
-        default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Log level (default: INFO)",
+    )
+
+    # OpenWrt Config File Support
+    config_path = "/etc/bt-proxy.json"
+    default_config = {
+        "name": "bt-proxy",
+        "friendly_name": "Bluetooth Proxy",
+        "port": 6053,
+        "max_connections": 3,
+        "log_level": "INFO"
+    }
+
+    if not os.path.exists(config_path):
+        try:
+            with open(config_path, "w") as f:
+                json.dump(default_config, f, indent=4)
+            logger.info("Created default config at %s", config_path)
+        except Exception as e:
+            logger.warning("Could not create default config at %s: %s", config_path, e)
+
+    loaded_config = default_config.copy()
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r") as f:
+                loaded_config.update(json.load(f))
+        except Exception as e:
+            logger.error("Failed to read config from %s: %s", config_path, e)
+
+    parser.set_defaults(
+        name=loaded_config.get("name", default_config["name"]),
+        friendly_name=loaded_config.get("friendly_name", default_config["friendly_name"]),
+        port=loaded_config.get("port", default_config["port"]),
+        max_connections=loaded_config.get("max_connections", default_config["max_connections"]),
+        log_level=loaded_config.get("log_level", default_config["log_level"]),
     )
 
     args = parser.parse_args()
