@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import argparse
 import json
 import os
@@ -32,31 +33,6 @@ def get_local_ip() -> str:
     except Exception:
         return "127.0.0.1"
 
-
-def get_bt_mac(adapter: str | None = None) -> str:
-    """Get the Bluetooth adapter MAC address."""
-    try:
-        result = subprocess.run(
-            ["bluetoothctl", "show"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        for line in result.stdout.splitlines():
-            line = line.strip()
-            if line.startswith("Controller") and ":" in line:
-                parts = line.split()
-                if len(parts) >= 2:
-                    return parts[1]
-    except Exception:
-        pass
-
-    # Fall back to reading from sysfs
-    try:
-        with open("/sys/class/bluetooth/hci0/address") as f:
-            return f.read().strip().upper()
-    except Exception:
-        return "00:00:00:00:00:00"
 
 
 async def register_mdns(
@@ -89,7 +65,11 @@ async def register_mdns(
 
 async def async_main(args: argparse.Namespace) -> None:
     """Async main entry point."""
-    bt_mac = get_bt_mac(args.adapter)
+    bt_mac = args.mac_address
+    if not bt_mac:
+        logger.error("No MAC address configured. Please set 'mac_address' in /etc/bt-proxy.json.")
+        sys.exit(1)
+
     logger.info("Bluetooth MAC: %s", bt_mac)
 
     ble_manager = BLEManager(
@@ -157,6 +137,10 @@ def main() -> None:
         help="Model name (default: Xiaomi Gateway)",
     )
     parser.add_argument(
+        "--mac-address",
+        help="MAC address (default: 38:83:9A:68:D5:8F)",
+    )
+    parser.add_argument(
         "--port",
         type=int,
         help="API server port (default: 6053)",
@@ -184,6 +168,7 @@ def main() -> None:
         "friendly_name": "Bluetooth Proxy",
         "manufacturer": "OpenLumi",
         "model": "Xiaomi Gateway",
+        "mac_address": "38:83:9A:68:D5:8F",
         "port": 6053,
         "max_connections": 3,
         "log_level": "INFO"
@@ -210,6 +195,7 @@ def main() -> None:
         friendly_name=loaded_config.get("friendly_name", default_config["friendly_name"]),
         manufacturer=loaded_config.get("manufacturer", default_config["manufacturer"]),
         model=loaded_config.get("model", default_config["model"]),
+        mac_address=loaded_config.get("mac_address", default_config["mac_address"]),
         port=loaded_config.get("port", default_config["port"]),
         max_connections=loaded_config.get("max_connections", default_config["max_connections"]),
         log_level=loaded_config.get("log_level", default_config["log_level"]),
