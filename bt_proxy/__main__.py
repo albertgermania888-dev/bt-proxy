@@ -36,7 +36,7 @@ def get_local_ip() -> str:
 
 def get_real_mac(adapter: str = "hci0") -> str:
     """Attempt to read the real MAC address once for the config file."""
-    # Try reading directly from sysfs (fast and reliable on Linux)
+    # Method 1: Try sysfs
     sysfs_path = f"/sys/class/bluetooth/{adapter}/address"
     if os.path.exists(sysfs_path):
         try:
@@ -47,7 +47,19 @@ def get_real_mac(adapter: str = "hci0") -> str:
         except Exception:
             pass
 
-    # If sysfs fails, fallback to a dummy MAC so the user knows they must change it
+    # Method 2: Fallback to hciconfig (Reliable on OpenWrt)
+    try:
+        result = subprocess.run(["hciconfig", adapter], capture_output=True, text=True, timeout=2)
+        for line in result.stdout.split('\n'):
+            if "BD Address:" in line:
+                parts = line.split("BD Address:")
+                if len(parts) > 1:
+                    mac_part = parts[1].strip().split()[0]
+                    return mac_part.upper()
+    except Exception:
+        pass
+
+    # Method 3: Dummy fallback
     return "00:00:00:00:00:00"
 
 
