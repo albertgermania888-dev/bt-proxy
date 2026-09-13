@@ -34,6 +34,22 @@ def get_local_ip() -> str:
         return "127.0.0.1"
 
 
+def get_real_mac(adapter: str = "hci0") -> str:
+    """Attempt to read the real MAC address once for the config file."""
+    # Try reading directly from sysfs (fast and reliable on Linux)
+    sysfs_path = f"/sys/class/bluetooth/{adapter}/address"
+    if os.path.exists(sysfs_path):
+        try:
+            with open(sysfs_path, "r") as f:
+                mac = f.read().strip()
+                if mac:
+                    return mac.upper()
+        except Exception:
+            pass
+
+    # If sysfs fails, fallback to a dummy MAC so the user knows they must change it
+    return "00:00:00:00:00:00"
+
 
 async def register_mdns(
     name: str, port: int, mac: str
@@ -66,8 +82,8 @@ async def register_mdns(
 async def async_main(args: argparse.Namespace) -> None:
     """Async main entry point."""
     bt_mac = args.mac_address
-    if not bt_mac:
-        logger.error("No MAC address configured. Please set 'mac_address' in /etc/bt-proxy.json.")
+    if not bt_mac or bt_mac == "00:00:00:00:00:00":
+        logger.error("No valid MAC address configured. Please set 'mac_address' in /etc/bt-proxy.json.")
         sys.exit(1)
 
     logger.info("Bluetooth MAC: %s", bt_mac)
@@ -168,17 +184,21 @@ def main() -> None:
         "friendly_name": "Bluetooth Proxy",
         "manufacturer": "OpenLumi",
         "model": "Xiaomi Gateway",
-        "mac_address": "38:83:9A:68:D5:8F",
+        "mac_address": "00:00:00:00:00:00",
         "port": 6053,
         "max_connections": 3,
         "log_level": "INFO"
     }
 
     if not os.path.exists(config_path):
+        # Auto-detect real MAC ONLY when generating the config for the very first time
+        real_mac = get_real_mac(parser.parse_known_args()[0].adapter or "hci0")
+        default_config["mac_address"] = real_mac
+
         try:
             with open(config_path, "w") as f:
                 json.dump(default_config, f, indent=4)
-            logger.info("Created default config at %s", config_path)
+            logger.info("Created default config at %s with MAC: %s", config_path, real_mac)
         except Exception as e:
             logger.warning("Could not create default config at %s: %s", config_path, e)
 

@@ -116,7 +116,7 @@ Example configuration:
     "friendly_name": "Bluetooth Proxy",
     "manufacturer": "OpenLumi",
     "model": "Xiaomi Gateway",
-    "mac_address": "38:83:9A:68:D5:8F",
+    "mac_address": "00:00:00:00:00:00",
     "port": 6053,
     "max_connections": 3,
     "log_level": "INFO"
