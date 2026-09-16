@@ -582,6 +582,8 @@ class APIServer:
         self.port = port
         self._connections: list[APIConnection] = []
         self._server: asyncio.Server | None = None
+        self._last_adv_time: float = time.time()
+        self._watchdog_task: asyncio.Task | None = None
 
     async def start(self) -> None:
         """Start the API server."""
@@ -597,9 +599,14 @@ class APIServer:
             self._handle_client, "0.0.0.0", self.port
         )
         logger.info("API server listening on port %d", self.port)
+        self._last_adv_time = time.time()
+        self._watchdog_task = asyncio.create_task(self._watchdog_loop())
 
     async def stop(self) -> None:
         """Stop the server and close all connections."""
+        if self._watchdog_task:
+            self._watchdog_task.cancel()
+            self._watchdog_task = None
         if self._server:
             self._server.close()
         for conn in list(self._connections):
@@ -630,6 +637,7 @@ class APIServer:
     def _on_advertisement(
         self, address: int, rssi: int, address_type: int, data: bytes
     ) -> None:
+        self._last_adv_time = time.time()
         for conn in self._connections:
             conn.push_advertisement(address, rssi, address_type, data)
 
@@ -644,3 +652,35 @@ class APIServer:
     def _on_scanner_state(self, state: int) -> None:
         for conn in self._connections:
             conn.push_scanner_state(state)
+
+    async def _watchdog_loop(self) -> None:
+        """Monitor for D-Bus/bleak stalls and force a restart if necessary."""
+        import os
+        import subprocess
+        try:
+            while True:
+                await asyncio.sleep(10)
+                if time.time() - self._last_adv_time > 120:
+                    logger.critical("Watchdog: No advertisements forwarded for 120s! D-Bus/bleak stall detected.")
+                    logger.critical("Watchdog: Attempting adapter reset and forcing process restart...")
+
+                    adapter = self.ble_manager._adapter or "hci0"
+
+                    # Stop the scanner gracefully if possible
+                    try:
+                        await self.ble_manager.stop_scanning()
+                    except Exception as e:
+                        logger.error(f"Watchdog: Error stopping scanner: {e}")
+
+                    # Hard reset the adapter via hciconfig
+                    try:
+                        subprocess.run(["hciconfig", adapter, "down"], timeout=5)
+                        subprocess.run(["hciconfig", adapter, "up"], timeout=5)
+                    except Exception as e:
+                        logger.error(f"Watchdog: Error resetting adapter with hciconfig: {e}")
+
+                    # Force exit so procd/systemd respawns a fresh process and reconnects to D-Bus
+                    logger.critical("Watchdog: Exiting process now.")
+                    os._exit(1)
+        except asyncio.CancelledError:
+            pass
