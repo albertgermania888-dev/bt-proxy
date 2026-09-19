@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import sys
 import argparse
+import json
+import os
 import asyncio
 import logging
 import signal
@@ -31,30 +34,33 @@ def get_local_ip() -> str:
         return "127.0.0.1"
 
 
-def get_bt_mac(adapter: str | None = None) -> str:
-    """Get the Bluetooth adapter MAC address."""
+def get_real_mac(adapter: str = "hci0") -> str:
+    """Attempt to read the real MAC address once for the config file."""
+    # Method 1: Try sysfs
+    sysfs_path = f"/sys/class/bluetooth/{adapter}/address"
+    if os.path.exists(sysfs_path):
+        try:
+            with open(sysfs_path, "r") as f:
+                mac = f.read().strip()
+                if mac:
+                    return mac.upper()
+        except Exception:
+            pass
+
+    # Method 2: Fallback to hciconfig (Reliable on OpenWrt)
     try:
-        result = subprocess.run(
-            ["bluetoothctl", "show"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        for line in result.stdout.splitlines():
-            line = line.strip()
-            if line.startswith("Controller") and ":" in line:
-                parts = line.split()
-                if len(parts) >= 2:
-                    return parts[1]
+        result = subprocess.run(["hciconfig", adapter], capture_output=True, text=True, timeout=2)
+        for line in result.stdout.split('\n'):
+            if "BD Address:" in line:
+                parts = line.split("BD Address:")
+                if len(parts) > 1:
+                    mac_part = parts[1].strip().split()[0]
+                    return mac_part.upper()
     except Exception:
         pass
 
-    # Fall back to reading from sysfs
-    try:
-        with open("/sys/class/bluetooth/hci0/address") as f:
-            return f.read().strip().upper()
-    except Exception:
-        return "00:00:00:00:00:00"
+    # Method 3: Dummy fallback
+    return "00:00:00:00:00:00"
 
 
 async def register_mdns(
@@ -87,7 +93,11 @@ async def register_mdns(
 
 async def async_main(args: argparse.Namespace) -> None:
     """Async main entry point."""
-    bt_mac = get_bt_mac(args.adapter)
+    bt_mac = args.mac_address
+    if not bt_mac or bt_mac == "00:00:00:00:00:00":
+        logger.error("No valid MAC address configured. Please set 'mac_address' in /etc/bt-proxy.json.")
+        sys.exit(1)
+
     logger.info("Bluetooth MAC: %s", bt_mac)
 
     ble_manager = BLEManager(
@@ -99,6 +109,8 @@ async def async_main(args: argparse.Namespace) -> None:
         ble_manager=ble_manager,
         name=args.name,
         friendly_name=args.friendly_name,
+        manufacturer=args.manufacturer,
+        model=args.model,
         mac_address=bt_mac,
         bt_mac_address=bt_mac,
         port=args.port,
@@ -134,28 +146,36 @@ async def async_main(args: argparse.Namespace) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="ESPHome-compatible Bluetooth Proxy for Raspberry Pi"
+        description="ESPHome-compatible Bluetooth Proxy"
     )
     parser.add_argument(
         "--name",
-        default="bt-proxy",
         help="Device name (default: bt-proxy)",
     )
     parser.add_argument(
         "--friendly-name",
-        default="Bluetooth Proxy",
         help="Friendly name (default: Bluetooth Proxy)",
+    )
+    parser.add_argument(
+        "--manufacturer",
+        help="Manufacturer name (default: OpenLumi)",
+    )
+    parser.add_argument(
+        "--model",
+        help="Model name (default: Xiaomi Gateway)",
+    )
+    parser.add_argument(
+        "--mac-address",
+        help="MAC address (default: 38:83:9A:68:D5:8F)",
     )
     parser.add_argument(
         "--port",
         type=int,
-        default=6053,
         help="API server port (default: 6053)",
     )
     parser.add_argument(
         "--max-connections",
         type=int,
-        default=3,
         help="Max concurrent BLE connections (default: 3)",
     )
     parser.add_argument(
@@ -165,9 +185,52 @@ def main() -> None:
     )
     parser.add_argument(
         "--log-level",
-        default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Log level (default: INFO)",
+    )
+
+    # OpenWrt Config File Support
+    config_path = "/etc/bt-proxy.json"
+    default_config = {
+        "name": "bt-proxy",
+        "friendly_name": "Bluetooth Proxy",
+        "manufacturer": "OpenLumi",
+        "model": "Xiaomi Gateway",
+        "mac_address": "00:00:00:00:00:00",
+        "port": 6053,
+        "max_connections": 3,
+        "log_level": "INFO"
+    }
+
+    if not os.path.exists(config_path):
+        # Auto-detect real MAC ONLY when generating the config for the very first time
+        real_mac = get_real_mac(parser.parse_known_args()[0].adapter or "hci0")
+        default_config["mac_address"] = real_mac
+
+        try:
+            with open(config_path, "w") as f:
+                json.dump(default_config, f, indent=4)
+            logger.info("Created default config at %s with MAC: %s", config_path, real_mac)
+        except Exception as e:
+            logger.warning("Could not create default config at %s: %s", config_path, e)
+
+    loaded_config = default_config.copy()
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r") as f:
+                loaded_config.update(json.load(f))
+        except Exception as e:
+            logger.error("Failed to read config from %s: %s", config_path, e)
+
+    parser.set_defaults(
+        name=loaded_config.get("name", default_config["name"]),
+        friendly_name=loaded_config.get("friendly_name", default_config["friendly_name"]),
+        manufacturer=loaded_config.get("manufacturer", default_config["manufacturer"]),
+        model=loaded_config.get("model", default_config["model"]),
+        mac_address=loaded_config.get("mac_address", default_config["mac_address"]),
+        port=loaded_config.get("port", default_config["port"]),
+        max_connections=loaded_config.get("max_connections", default_config["max_connections"]),
+        log_level=loaded_config.get("log_level", default_config["log_level"]),
     )
 
     args = parser.parse_args()

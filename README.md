@@ -24,13 +24,13 @@ WARNING: This project was coded largely with the assistance of an LLM. It works 
 ```bash
 git clone https://github.com/denvera/bt-proxy.git /opt/bt-proxy
 cd /opt/bt-proxy
-uv sync
+pip3 install .
 ```
 
 ## Usage
 
 ```bash
-uv run python -m bt_proxy
+python3 -m bt_proxy
 ```
 
 ### Options
@@ -47,7 +47,7 @@ uv run python -m bt_proxy
 ### Example
 
 ```bash
-uv run python -m bt_proxy --name living-room-proxy --friendly-name "Living Room BT Proxy" --log-level DEBUG
+python3 -m bt_proxy --name living-room-proxy --friendly-name "Living Room BT Proxy" --log-level DEBUG
 ```
 
 ## How It Works
@@ -88,22 +88,41 @@ docker run -d \
 
 > `--net=host` is required for mDNS discovery. `--privileged` grants access to the Bluetooth adapter — alternatively use `--cap-add=NET_ADMIN --cap-add=NET_RAW` with explicit device mounts.
 
-## Running as a Service
+## Running as a Service (OpenWrt)
 
-Copy the unit file and enable it:
-
-```bash
-sudo cp bt-proxy.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now bt-proxy
-```
-
-Check status / logs:
+The proxy includes a `procd` init script for OpenWrt. To install and start it:
 
 ```bash
-sudo systemctl status bt-proxy
-journalctl -u bt-proxy -f
+cp init.d/bt-proxy /etc/init.d/
+chmod +x /etc/init.d/bt-proxy
+/etc/init.d/bt-proxy enable
+/etc/init.d/bt-proxy start
 ```
+
+Check logs:
+
+```bash
+logread -f -e bt-proxy
+```
+
+### Configuration
+
+Configuration is managed via `/etc/bt-proxy.json`. If the file does not exist, it will be created with default values on the first run.
+Example configuration:
+
+```json
+{
+    "name": "bt-proxy",
+    "friendly_name": "Bluetooth Proxy",
+    "manufacturer": "OpenLumi",
+    "model": "Xiaomi Gateway",
+    "mac_address": "00:00:00:00:00:00",
+    "port": 6053,
+    "max_connections": 3,
+    "log_level": "INFO"
+}
+```
+
 
 ## Scanning modes: active vs passive
 
